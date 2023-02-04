@@ -1,0 +1,16 @@
+{
+  "name": "openalyers-pages",
+  "version": "1.0.0",
+  "description": "",
+  "scripts": {
+    "start": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "ol": "7.1.0"
+  },
+  "devDependencies": {
+    "@babel/core": "latest",
+    "vite": "^3.0.3"
+  }
+}
