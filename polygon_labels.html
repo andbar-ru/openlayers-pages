@@ -15,11 +15,34 @@ body {
   width: 100%;
   height: 100%;
 }
+.hidden {
+  display: none;
+}
+#list {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  overflow: auto;
+  list-style-type: none;
+  background-color: white;
+  margin: 0;
+  padding: 10px 0;
+}
+#list li {
+  cursor: pointer;
+  padding: 0 10px;
+  font-family: "Dejavu Sans Mono";
+}
+#list li:hover {
+  background-color: #ddd;
+}
 </style>
 </head>
 
 <body>
 <div id="map" class="map"></div>
+<ul id="list" class="hidden"></ul>
 <script type="module" src="scripts/polygon_labels.js"></script>
 </body>
 

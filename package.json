@@ -7,10 +7,9 @@
     "build": "vite build"
   },
   "dependencies": {
-    "ol": "7.1.0"
+    "ol": "7.2.2"
   },
   "devDependencies": {
-    "@babel/core": "latest",
-    "vite": "^3.0.3"
+    "vite": "^3.2.3"
   }
 }
