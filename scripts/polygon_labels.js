@@ -154,6 +154,26 @@ function onLiClick(evt) {
   view.fit(olFeature.getGeometry(), { padding: [10, 10, 10, 10] })
 }
 
+function walkAllCountries() {
+  const lis = list.children
+  let i = 0
+
+  let timer = setInterval(function () {
+    if (pixelCoordinates2PixelCache.size > i) {
+      i++
+    } else {
+      const li = lis[i]
+      if (!li) {
+        console.log('Finish')
+        clearInterval(timer)
+        return
+      }
+      console.log(li.id)
+      li.click()
+    }
+  }, 1000)
+}
+
 fetch('data/countries-coastline-1km.geo.json')
   .then(function (response) {
     return response.json()
@@ -172,4 +192,5 @@ fetch('data/countries-coastline-1km.geo.json')
       li.addEventListener('click', onLiClick)
       list.appendChild(li)
     }
+    // walkAllCountries()
   })
