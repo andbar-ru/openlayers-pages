@@ -377,6 +377,14 @@ function searchVertical(polygon, attractor, bufferSize, maxSteps) {
   const maxY = Math.ceil(bbox[1][1])
   const startY = Math.round(attractor[1])
 
+  // prettier-ignore
+  const searchDirection =
+    startY >= maxY - bufferSize
+    ? SearchDirection.Minus
+    : startY <= minY + bufferSize
+    ? SearchDirection.Plus
+    : SearchDirection.Both
+
   let stepX = Math.floor((maxX - minX) / maxSteps)
   if (stepX < 1) {
     stepX = 1
@@ -462,14 +470,6 @@ function searchVertical(polygon, attractor, bufferSize, maxSteps) {
     return null
   }
 
-  // prettier-ignore
-  const searchDirection =
-    startY >= maxY
-    ? SearchDirection.Minus
-    : startY <= minY
-    ? SearchDirection.Plus
-    : SearchDirection.Both
-
   if (searchDirection === SearchDirection.Plus) {
     return searchPlus()
   } else if (searchDirection === SearchDirection.Minus) {
@@ -513,6 +513,14 @@ function searchHorizontal(polygon, attractor, bufferSize, maxSteps) {
   const maxX = Math.ceil(bbox[1][0])
   const maxY = Math.ceil(bbox[1][1])
   const startX = Math.round(attractor[0])
+
+  // prettier-ignore
+  const searchDirection =
+    startX >= maxX - bufferSize
+    ? SearchDirection.Minus
+    : startX <= minX + bufferSize
+    ? SearchDirection.Plus
+    : SearchDirection.Both
 
   let stepX = Math.floor((maxX - minX) / maxSteps)
   if (stepX < 1) {
@@ -599,14 +607,6 @@ function searchHorizontal(polygon, attractor, bufferSize, maxSteps) {
     return null
   }
 
-  // prettier-ignore
-  const searchDirection =
-    startX >= maxX
-    ? SearchDirection.Minus
-    : startX <= minX
-    ? SearchDirection.Plus
-    : SearchDirection.Both
-
   if (searchDirection === SearchDirection.Plus) {
     return searchPlus()
   } else if (searchDirection === SearchDirection.Minus) {
@@ -650,8 +650,34 @@ function searchMainDiagonal(polygon, attractor, bufferSize, maxSteps) {
   const minY = Math.floor(bbox[0][1])
   const maxX = Math.ceil(bbox[1][0])
   const maxY = Math.ceil(bbox[1][1])
-  const startX = Math.round(attractor[0])
-  const startY = Math.round(attractor[1])
+  let startX = Math.round(attractor[0])
+  let startY = Math.round(attractor[1])
+
+  // Направление поиска
+  let searchDirection = SearchDirection.Both
+  if (startX <= minX + bufferSize && startY <= minY + bufferSize) {
+    searchDirection = SearchDirection.Plus
+  } else if (startX >= maxX - bufferSize && startY >= maxY - bufferSize) {
+    searchDirection = SearchDirection.Minus
+  }
+
+  // Если точка притяжения находится вне полигона, то можно сразу прыгнуть до ближайшей точки полигона.
+  if (!pointInPolygon([startX, startY], polygon)) {
+    const distanceToEdge = getDistanceBetweenPointAndPolyline([startX, startY], polygon)
+    // TODO Ближайшая точка полигона — это будущая цель, а пока смещаемся по диагонали на величину
+    // расстояния. Для смещения по осям при 45° может применяться как cos, так и sin.
+    const delta = Math.floor(distanceToEdge * Math.cos((Math.PI / 180) * 45))
+    if (searchDirection === SearchDirection.Plus) {
+      startX += delta
+      startY += delta
+    } else if (searchDirection === SearchDirection.Minus) {
+      startX -= delta
+      startY -= delta
+    } else {
+      // SearchDirection.Both -- это редкий случай при стартовой точке вне полигона. Вычислить
+      // направление смещений здесь сложно, поэтому пропускаем.
+    }
+  }
 
   let stepX = Math.floor((maxX - minX) / maxSteps)
   if (stepX < 1) {
@@ -823,14 +849,6 @@ function searchMainDiagonal(polygon, attractor, bufferSize, maxSteps) {
     return null
   }
 
-  // Направление поиска
-  let searchDirection = SearchDirection.Both
-  if (startX <= minX && startY <= minY) {
-    searchDirection = SearchDirection.Plus
-  } else if (startX >= maxX && startY >= maxY) {
-    searchDirection = SearchDirection.Minus
-  }
-
   if (searchDirection === SearchDirection.Plus) {
     return searchPlus()
   } else if (searchDirection === SearchDirection.Minus) {
@@ -874,8 +892,34 @@ function searchAntiDiagonal(polygon, attractor, bufferSize, maxSteps) {
   const minY = Math.floor(bbox[0][1])
   const maxX = Math.ceil(bbox[1][0])
   const maxY = Math.ceil(bbox[1][1])
-  const startX = Math.round(attractor[0])
-  const startY = Math.round(attractor[1])
+  let startX = Math.round(attractor[0])
+  let startY = Math.round(attractor[1])
+
+  // Направление поиска
+  let searchDirection = SearchDirection.Both
+  if (startX <= minX + bufferSize && startY >= maxY - bufferSize) {
+    searchDirection = SearchDirection.Plus
+  } else if (startX >= maxX - bufferSize && startY <= minY + bufferSize) {
+    searchDirection = SearchDirection.Minus
+  }
+
+  // Если точка притяжения находится вне полигона, то можно сразу прыгнуть до ближайшей точки полигона.
+  if (!pointInPolygon([startX, startY], polygon)) {
+    const distanceToEdge = getDistanceBetweenPointAndPolyline([startX, startY], polygon)
+    // TODO Ближайшая точка полигона — это будущая цель, а пока смещаемся по диагонали на величину
+    // расстояния. Для смещения по осям при 45° может применяться как cos, так и sin.
+    const delta = Math.floor(distanceToEdge * Math.cos((Math.PI / 180) * 45))
+    if (searchDirection === SearchDirection.Plus) {
+      startX += delta
+      startY -= delta
+    } else if (searchDirection === SearchDirection.Minus) {
+      startX -= delta
+      startY += delta
+    } else {
+      // SearchDirection.Both -- это редкий случай при стартовой точке вне полигона. Вычислить
+      // направление смещений здесь сложно, поэтому пропускаем.
+    }
+  }
 
   let stepX = Math.floor((maxX - minX) / maxSteps)
   if (stepX < 1) {
@@ -1045,14 +1089,6 @@ function searchAntiDiagonal(polygon, attractor, bufferSize, maxSteps) {
     }
 
     return null
-  }
-
-  // Направление поиска
-  let searchDirection = SearchDirection.Both
-  if (startX <= minX && startY >= maxY) {
-    searchDirection = SearchDirection.Plus
-  } else if (startX >= maxX && startY <= minY) {
-    searchDirection = SearchDirection.Minus
   }
 
   if (searchDirection === SearchDirection.Plus) {
