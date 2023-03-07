@@ -97,6 +97,87 @@ export function getDistanceBetweenPointAndPolyline(point, polyline) {
 }
 
 /**
+ * Вычисляет коэффициент λₛ (см. https://diego.assencio.com/?index=ec3d5dfdfc0b6a0d147a656f0af332bd)
+ *      (P - A) ⋅ (B - A)
+ * λₛ = —————————————————
+ *      (B - A) ⋅ (B - A)
+ *
+ * @param p - точка (вектор P), от которой ищется ближайшая точка на отрезке
+ * @param a - первая точка отрезка (вектор A)
+ * @param b - вторая точка отрезка (вектор B)
+ * @returns коэффициент λₛ
+ */
+export function lambdaS(p, a, b) {
+  // Вектор P - A
+  const u = [p[0] - a[0], p[1] - a[1]]
+  // Вектор B - A
+  const v = [b[0] - a[0], b[1] - a[1]]
+  // Скалярное произведение векторов U * V
+  const uv = u[0] * v[0] + u[1] * v[1]
+  // Скалярное произведение V на самого себя
+  const vv = v[0] ** 2 + v[1] ** 2
+  const l = uv / vv
+  return l
+}
+
+/**
+ * Вычисляет координаты точки (вектор S) на отрезке AB, которая ближайшая к точке P.
+ * см. https://diego.assencio.com/?index=ec3d5dfdfc0b6a0d147a656f0af332bd
+ * если λₛ <= 0, тогда S = A
+ * если λₛ >= 1, тогда S = B
+ * если 0 < λₛ < 1, тогда S = A + λₛ(B - A)
+ *
+ * @param p - точка (вектор P), от которой ищется ближайшая точка на отрезке
+ * @param a - первая точка отрезка (вектор A)
+ * @param b - вторая точка отрезка (вектор B)
+ * @returns координаты найденной точки (вектор S)
+ */
+export function closestPointOnSegmentToPoint(p, a, b) {
+  const l = lambdaS(p, a, b)
+  if (l <= 0) {
+    return a
+  } else if (l >= 1) {
+    return b
+  } else {
+    const v = [b[0] - a[0], b[1] - a[1]]
+    const lv = [l * v[0], l * v[1]]
+    const s = [a[0] + lv[0], a[1] + lv[1]]
+    return s
+  }
+}
+
+/**
+ * Вычисляет координаты точки на полилинии, ближайшей к заданной.
+ *
+ * @param point - точка, от которой ищется ближайшая точка на полилинии
+ * @param polyline - массив координат вершин полилинии
+ * @returns координаты найденной точки или null, если переданы некорректные координаты
+ */
+export function closestPointOnPolylineToPoint(point, polyline) {
+  if (polyline.length < 2) {
+    console.error('Ошибка: ломаная линия должна содержать не менее 2 вершин.')
+    if (polyline[0]) {
+      return polyline[0]
+    } else {
+      return point
+    }
+  }
+
+  let sqrMinDistance = Infinity
+  let closestPoint
+
+  for (let i = 0, l = polyline.length; i < l - 1; i++) {
+    const d2 = getSquaredDistanceBetweenPointAndSegment(point, polyline[i], polyline[i + 1])
+    if (d2 < sqrMinDistance) {
+      sqrMinDistance = d2
+      closestPoint = closestPointOnSegmentToPoint(point, polyline[i], polyline[i + 1])
+    }
+  }
+
+  return closestPoint
+}
+
+/**
  * Возвращает минимальные и максимальные координаты ограничивающего прямоугольника ломаной линии.
  * Для пикселей это координаты верхнего левого и нижнего правого угла.
  *
@@ -661,11 +742,12 @@ function searchMainDiagonal(polygon, attractor, bufferSize, maxSteps) {
     searchDirection = SearchDirection.Minus
   }
 
-  // Если точка притяжения находится вне полигона, то можно сразу прыгнуть до ближайшей точки полигона.
+  // Если точка притяжения находится вне полигона, то сдвигаемся по диагонали в сторону полигона
+  // на величину расстояния до полигона.
+  // При диагональном поиске это более правильно, чем прыжок до ближайшей точки на полигоне.
   if (!pointInPolygon([startX, startY], polygon)) {
     const distanceToEdge = getDistanceBetweenPointAndPolyline([startX, startY], polygon)
-    // TODO Ближайшая точка полигона — это будущая цель, а пока смещаемся по диагонали на величину
-    // расстояния. Для смещения по осям при 45° может применяться как cos, так и sin.
+    // Для смещения по осям при 45° может применяться как cos, так и sin.
     const delta = Math.floor(distanceToEdge * Math.cos((Math.PI / 180) * 45))
     if (searchDirection === SearchDirection.Plus) {
       startX += delta
@@ -674,8 +756,24 @@ function searchMainDiagonal(polygon, attractor, bufferSize, maxSteps) {
       startX -= delta
       startY -= delta
     } else {
-      // SearchDirection.Both -- это редкий случай при стартовой точке вне полигона. Вычислить
-      // направление смещений здесь сложно, поэтому пропускаем.
+      // SearchDirection.Both -- это редкий случай при стартовой точке вне полигона.
+      const closestPoint = closestPointOnPolylineToPoint([startX, startY], polygon)
+      if (closestPoint[0] > startX) {
+        startX += delta
+      } else {
+        startX -= delta
+      }
+      if (closestPoint[1] > startY) {
+        startY += delta
+      } else {
+        startY -= delta
+      }
+      // При определённых сочетаниях смещений по осям можно сделать поиск однонаправленным
+      if (closestPoint[0] > startX && closestPoint[1] > startY) {
+        searchDirection = SearchDirection.Plus
+      } else if (closestPoint[1] < startX && closestPoint[1] < startY) {
+        searchDirection = SearchDirection.Minus
+      }
     }
   }
 
@@ -903,11 +1001,12 @@ function searchAntiDiagonal(polygon, attractor, bufferSize, maxSteps) {
     searchDirection = SearchDirection.Minus
   }
 
-  // Если точка притяжения находится вне полигона, то можно сразу прыгнуть до ближайшей точки полигона.
+  // Если точка притяжения находится вне полигона, то сдвигаемся по диагонали в сторону полигона
+  // на величину расстояния до полигона.
+  // При диагональном поиске это более правильно, чем прыжок до ближайшей точки на полигоне.
   if (!pointInPolygon([startX, startY], polygon)) {
     const distanceToEdge = getDistanceBetweenPointAndPolyline([startX, startY], polygon)
-    // TODO Ближайшая точка полигона — это будущая цель, а пока смещаемся по диагонали на величину
-    // расстояния. Для смещения по осям при 45° может применяться как cos, так и sin.
+    // Для смещения по осям при 45° может применяться как cos, так и sin.
     const delta = Math.floor(distanceToEdge * Math.cos((Math.PI / 180) * 45))
     if (searchDirection === SearchDirection.Plus) {
       startX += delta
@@ -916,8 +1015,24 @@ function searchAntiDiagonal(polygon, attractor, bufferSize, maxSteps) {
       startX -= delta
       startY += delta
     } else {
-      // SearchDirection.Both -- это редкий случай при стартовой точке вне полигона. Вычислить
-      // направление смещений здесь сложно, поэтому пропускаем.
+      // SearchDirection.Both -- это редкий случай при стартовой точке вне полигона.
+      const closestPoint = closestPointOnPolylineToPoint([startX, startY], polygon)
+      if (closestPoint[0] > startX) {
+        startX += delta
+      } else {
+        startX -= delta
+      }
+      if (closestPoint[1] > startY) {
+        startY += delta
+      } else {
+        startY -= delta
+      }
+      // При определённых сочетаниях смещений по осям можно сделать поиск однонаправленным
+      if (closestPoint[0] > startX && closestPoint[1] < startY) {
+        searchDirection = SearchDirection.Plus
+      } else if (closestPoint[1] < startX && closestPoint[1] > startY) {
+        searchDirection = SearchDirection.Minus
+      }
     }
   }
 
