@@ -7,6 +7,9 @@ import simplify from 'simplify-js'
 
 import { Orientation, SearchLine, SearchDirection, Attractor, Axis } from './enums'
 
+/** Косинус 45°. Применяется для вычисления смещения по осям. */
+const cos45 = Math.cos((Math.PI / 180) * 45)
+
 /**
  * Возвращает квадрат минимального расстояния между точкой и отрезком через вектора.
  * Возвращает квадрат потому, что функция может вызываться очень много раз, а корень вычислять накладно.
@@ -442,9 +445,11 @@ export function pointInPolygon(point, polygon) {
  * @param bufferSize - размер буфера
  * @param maxSteps - максимальное количество шагов. Так как округление производится в меньшую
  *                   сторону, реальное количество шагов может быть больше.
+ * @param fast - активировать быстрый поиск. Он менее точный и в редких случаях может не найти точку, хотя
+ *               таковая имеется.
  * @returns координаты найденной точки или null, если не удалось найти точку, удовлетворяющую условиям
  */
-function searchVertical(polygon, attractor, bufferSize, maxSteps) {
+function searchVertical(polygon, attractor, bufferSize, maxSteps, fast = false) {
   const bbox = getPolylineBbox(polygon)
   if (!bbox) {
     console.error('Непредвиденная ошибка: не удалось вычислить bbox')
@@ -474,6 +479,9 @@ function searchVertical(polygon, attractor, bufferSize, maxSteps) {
   if (stepY < 1) {
     stepY = 1
   }
+  // Если активирован быстрый поиск, то точки будут тестироваться с шагом, который равен величине буфера.
+  const bigStepX = fast ? bufferSize : stepX
+  const bigStepY = fast ? bufferSize : stepY
 
   /**
    * Производит поиск подходящей точки в сторону увеличения ординаты.
@@ -484,15 +492,40 @@ function searchVertical(polygon, attractor, bufferSize, maxSteps) {
    */
   function searchPlus() {
     // Построчно
-    for (let y = startY; y <= maxY; y += stepY) {
+    for (let y = startY; y <= maxY; y += bigStepY) {
       // Квадрат минимального расстояния от точки P до точки притяжения A при условии, что
       // P находится внутри полигона и расстояние от P до периметра полигона больше буфера.
       let sqrMinDistance = Infinity
       // Координаты точки, где зафиксировано минимальное расстояние до точки притяжения в строке
       let minDistanceXY = null
 
+      /**
+       * Детальный поиск лучшего варианта в окрестностях найденной точки.
+       *
+       * @param x0 - координата X найденной точки
+       * @param y0 - координата Y найденной точки
+       */
+      function neighborhoodSearch(x0, y0) {
+        for (let x = x0 - bigStepX; x <= x0 + bigStepX; x += stepX) {
+          for (let y = y0 - bigStepY; y <= y0 + bigStepY; y += stepY) {
+            const p = [x, y]
+
+            if (pointInPolygon(p, polygon)) {
+              const distanceToEdge = getDistanceBetweenPointAndPolyline(p, polygon)
+              if (distanceToEdge !== null && distanceToEdge >= bufferSize) {
+                const sqrD = getSquaredDistanceBetweenPoints(p, attractor)
+                if (sqrD < sqrMinDistance) {
+                  sqrMinDistance = sqrD
+                  minDistanceXY = p
+                }
+              }
+            }
+          }
+        }
+      }
+
       // Проходим строку от начала до конца полностью.
-      for (let x = minX; x <= maxX; x += stepX) {
+      for (let x = minX; x <= maxX; x += bigStepX) {
         const point = [x, y]
         if (pointInPolygon(point, polygon)) {
           const distanceToEdge = getDistanceBetweenPointAndPolyline(point, polygon)
@@ -507,6 +540,9 @@ function searchVertical(polygon, attractor, bufferSize, maxSteps) {
       }
 
       if (minDistanceXY) {
+        if (stepX < bigStepX || stepY < bigStepY) {
+          neighborhoodSearch(minDistanceXY[0], minDistanceXY[1])
+        }
         return minDistanceXY
       }
     }
@@ -522,15 +558,40 @@ function searchVertical(polygon, attractor, bufferSize, maxSteps) {
    */
   function searchMinus() {
     // Построчно
-    for (let y = startY; y >= minY; y -= stepY) {
+    for (let y = startY; y >= minY; y -= bigStepY) {
       // Квадрат минимального расстояния от точки P до точки притяжения A при условии, что
       // P находится внутри полигона и расстояние от P до периметра полигона больше буфера.
       let sqrMinDistance = Infinity
       // Координаты точки, где зафиксировано минимальное расстояние до точки притяжения в строке
       let minDistanceXY = null
 
+      /**
+       * Детальный поиск лучшего варианта в окрестностях найденной точки.
+       *
+       * @param x0 - координата X найденной точки
+       * @param y0 - координата Y найденной точки
+       */
+      function neighborhoodSearch(x0, y0) {
+        for (let x = x0 - bigStepX; x <= x0 + bigStepX; x += stepX) {
+          for (let y = y0 - bigStepY; y <= y0 + bigStepY; y += stepY) {
+            const p = [x, y]
+
+            if (pointInPolygon(p, polygon)) {
+              const distanceToEdge = getDistanceBetweenPointAndPolyline(p, polygon)
+              if (distanceToEdge !== null && distanceToEdge >= bufferSize) {
+                const sqrD = getSquaredDistanceBetweenPoints(p, attractor)
+                if (sqrD < sqrMinDistance) {
+                  sqrMinDistance = sqrD
+                  minDistanceXY = p
+                }
+              }
+            }
+          }
+        }
+      }
+
       // Проходим строку от начала до конца полностью.
-      for (let x = minX; x <= maxX; x += stepX) {
+      for (let x = minX; x <= maxX; x += bigStepX) {
         const point = [x, y]
         if (pointInPolygon(point, polygon)) {
           const distanceToEdge = getDistanceBetweenPointAndPolyline(point, polygon)
@@ -545,6 +606,9 @@ function searchVertical(polygon, attractor, bufferSize, maxSteps) {
       }
 
       if (minDistanceXY) {
+        if (stepX < bigStepX || stepY < bigStepY) {
+          neighborhoodSearch(minDistanceXY[0], minDistanceXY[1])
+        }
         return minDistanceXY
       }
     }
@@ -579,9 +643,11 @@ function searchVertical(polygon, attractor, bufferSize, maxSteps) {
  * @param bufferSize - размер буфера
  * @param maxSteps - максимальное количество шагов. Так как округление производится в меньшую
  *                   сторону, реальное количество шагов может быть больше.
+ * @param fast - активировать быстрый поиск. Он менее точный и в редких случаях может не найти точку, хотя
+ *               таковая имеется.
  * @returns координаты найденной точки или null, если не удалось найти точку, удовлетворяющую условиям
  */
-function searchHorizontal(polygon, attractor, bufferSize, maxSteps) {
+function searchHorizontal(polygon, attractor, bufferSize, maxSteps, fast = false) {
   const bbox = getPolylineBbox(polygon)
   if (!bbox) {
     console.error('Непредвиденная ошибка: не удалось вычислить bbox')
@@ -611,6 +677,9 @@ function searchHorizontal(polygon, attractor, bufferSize, maxSteps) {
   if (stepY < 1) {
     stepY = 1
   }
+  // Если активирован быстрый поиск, то точки будут тестироваться с шагом, который равен величине буфера.
+  const bigStepX = fast ? bufferSize : stepX
+  const bigStepY = fast ? bufferSize : stepY
 
   /**
    * Производит поиск подходящей точки в сторону увеличения абсциссы.
@@ -621,15 +690,40 @@ function searchHorizontal(polygon, attractor, bufferSize, maxSteps) {
    */
   function searchPlus() {
     // Поколоночно
-    for (let x = startX; x <= maxX; x += stepX) {
+    for (let x = startX; x <= maxX; x += bigStepX) {
       // Квадрат минимального расстояния от точки P до точки притяжения A при условии, что
       // P находится внутри полигона и расстояние от P до периметра полигона больше буфера.
       let sqrMinDistance = Infinity
       // Координаты точки, где зафиксировано минимальное расстояние до точки притяжения в строке
       let minDistanceXY = null
 
+      /**
+       * Детальный поиск лучшего варианта в окрестностях найденной точки.
+       *
+       * @param x0 - координата X найденной точки
+       * @param y0 - координата Y найденной точки
+       */
+      function neighborhoodSearch(x0, y0) {
+        for (let x = x0 - bigStepX; x <= x0 + bigStepX; x += stepX) {
+          for (let y = y0 - bigStepY; y <= y0 + bigStepY; y += stepY) {
+            const p = [x, y]
+
+            if (pointInPolygon(p, polygon)) {
+              const distanceToEdge = getDistanceBetweenPointAndPolyline(p, polygon)
+              if (distanceToEdge !== null && distanceToEdge >= bufferSize) {
+                const sqrD = getSquaredDistanceBetweenPoints(p, attractor)
+                if (sqrD < sqrMinDistance) {
+                  sqrMinDistance = sqrD
+                  minDistanceXY = p
+                }
+              }
+            }
+          }
+        }
+      }
+
       // Проходим колонку от начала до конца полностью.
-      for (let y = minY; y <= maxY; y += stepY) {
+      for (let y = minY; y <= maxY; y += bigStepY) {
         const point = [x, y]
         if (pointInPolygon(point, polygon)) {
           const distanceToEdge = getDistanceBetweenPointAndPolyline(point, polygon)
@@ -644,6 +738,9 @@ function searchHorizontal(polygon, attractor, bufferSize, maxSteps) {
       }
 
       if (minDistanceXY) {
+        if (stepX < bigStepX || stepY < bigStepY) {
+          neighborhoodSearch(minDistanceXY[0], minDistanceXY[1])
+        }
         return minDistanceXY
       }
     }
@@ -659,15 +756,40 @@ function searchHorizontal(polygon, attractor, bufferSize, maxSteps) {
    */
   function searchMinus() {
     // Поколоночно
-    for (let x = startX; x >= minX; x -= stepX) {
+    for (let x = startX; x >= minX; x -= bigStepX) {
       // Квадрат минимального расстояния от точки P до точки притяжения A при условии, что
       // P находится внутри полигона и расстояние от P до периметра полигона больше буфера.
       let sqrMinDistance = Infinity
       // Координаты точки, где зафиксировано минимальное расстояние до точки притяжения в строке
       let minDistanceXY = null
 
+      /**
+       * Детальный поиск лучшего варианта в окрестностях найденной точки.
+       *
+       * @param x0 - координата X найденной точки
+       * @param y0 - координата Y найденной точки
+       */
+      function neighborhoodSearch(x0, y0) {
+        for (let x = x0 - bigStepX; x <= x0 + bigStepX; x += stepX) {
+          for (let y = y0 - bigStepY; y <= y0 + bigStepY; y += stepY) {
+            const p = [x, y]
+
+            if (pointInPolygon(p, polygon)) {
+              const distanceToEdge = getDistanceBetweenPointAndPolyline(p, polygon)
+              if (distanceToEdge !== null && distanceToEdge >= bufferSize) {
+                const sqrD = getSquaredDistanceBetweenPoints(p, attractor)
+                if (sqrD < sqrMinDistance) {
+                  sqrMinDistance = sqrD
+                  minDistanceXY = p
+                }
+              }
+            }
+          }
+        }
+      }
+
       // Проходим колонку от начала до конца полностью.
-      for (let y = minY; y <= maxY; y += stepY) {
+      for (let y = minY; y <= maxY; y += bigStepY) {
         const point = [x, y]
         if (pointInPolygon(point, polygon)) {
           const distanceToEdge = getDistanceBetweenPointAndPolyline(point, polygon)
@@ -682,6 +804,9 @@ function searchHorizontal(polygon, attractor, bufferSize, maxSteps) {
       }
 
       if (minDistanceXY) {
+        if (stepX < bigStepX || stepY < bigStepY) {
+          neighborhoodSearch(minDistanceXY[0], minDistanceXY[1])
+        }
         return minDistanceXY
       }
     }
@@ -717,9 +842,11 @@ function searchHorizontal(polygon, attractor, bufferSize, maxSteps) {
  * @param bufferSize - размер буфера
  * @param maxSteps - максимальное количество шагов. Так как округление производится в меньшую
  *                   сторону, реальное количество шагов может быть больше.
+ * @param fast - активировать быстрый поиск. Он менее точный и в редких случаях может не найти точку, хотя
+ *               таковая имеется.
  * @returns координаты найденной точки или null, если не удалось найти точку, удовлетворяющую условиям
  */
-function searchMainDiagonal(polygon, attractor, bufferSize, maxSteps) {
+function searchMainDiagonal(polygon, attractor, bufferSize, maxSteps, fast = false) {
   const bbox = getPolylineBbox(polygon)
   if (!bbox) {
     console.error('Непредвиденная ошибка: не удалось вычислить bbox')
@@ -748,7 +875,7 @@ function searchMainDiagonal(polygon, attractor, bufferSize, maxSteps) {
   if (!pointInPolygon([startX, startY], polygon)) {
     const distanceToEdge = getDistanceBetweenPointAndPolyline([startX, startY], polygon)
     // Для смещения по осям при 45° может применяться как cos, так и sin.
-    const delta = Math.floor(distanceToEdge * Math.cos((Math.PI / 180) * 45))
+    const delta = Math.floor(distanceToEdge * cos45)
     if (searchDirection === SearchDirection.Plus) {
       startX += delta
       startY += delta
@@ -787,6 +914,8 @@ function searchMainDiagonal(polygon, attractor, bufferSize, maxSteps) {
   }
   // При поиске вдоль диагоналей используем единый шаг
   const step = Math.min(stepX, stepY)
+  // Если активирован быстрый поиск, то точки будут тестироваться с шагом, который равен величине буфера.
+  const bigStep = fast ? Math.floor(bufferSize * cos45) : step
 
   // Проводим прямую через стартовую точку перпендикулярно линии поиска (главной диагонали) и
   // находим точки её пересечения (2) с ограничивающим прямоугольником. Полагаемся на то, что
@@ -819,9 +948,34 @@ function searchMainDiagonal(polygon, attractor, bufferSize, maxSteps) {
     // Координаты точки, где зафиксировано минимальное расстояние до точки притяжения в строке
     let minDistanceXY = null
 
+    /**
+     * Детальный поиск лучшего варианта в окрестностях найденной точки.
+     *
+     * @param x0 - координата X найденной точки
+     * @param y0 - координата Y найденной точки
+     */
+    function neighborhoodSearch(x0, y0) {
+      for (let x = x0 - bigStep; x <= x0 + bigStep; x += step) {
+        for (let y = y0 - bigStep; y <= y0 + bigStep; y += step) {
+          const p = [x, y]
+
+          if (pointInPolygon(p, polygon)) {
+            const distanceToEdge = getDistanceBetweenPointAndPolyline(p, polygon)
+            if (distanceToEdge !== null && distanceToEdge >= bufferSize) {
+              const sqrD = getSquaredDistanceBetweenPoints(p, attractor)
+              if (sqrD < sqrMinDistance) {
+                sqrMinDistance = sqrD
+                minDistanceXY = p
+              }
+            }
+          }
+        }
+      }
+    }
+
     /** Внутренний цикл перпендикулярно линии поиска. */
     function innerLoop() {
-      for (let x = x1, y = y1; x <= x2 || y >= y2; x += step, y -= step) {
+      for (let x = x1, y = y1; x <= x2 || y >= y2; x += bigStep, y -= bigStep) {
         const point = [x, y]
 
         if (pointInPolygon(point, polygon)) {
@@ -846,20 +1000,23 @@ function searchMainDiagonal(polygon, attractor, bufferSize, maxSteps) {
       innerLoop()
 
       if (minDistanceXY) {
+        if (step < bigStep) {
+          neighborhoodSearch(minDistanceXY[0], minDistanceXY[1])
+        }
         return minDistanceXY
       }
 
       // Расти может только один из x1, y1. Сначала растёт y1, потом x1.
       if (y1 < maxY) {
-        y1 += step
+        y1 += bigStep
       } else {
-        x1 += step
+        x1 += bigStep
       }
       // Также расти может только один из x2, y2. Сначала растёт x2, потом y2.
       if (x2 < maxX) {
-        x2 += step
+        x2 += bigStep
       } else {
-        y2 += step
+        y2 += bigStep
       }
     }
 
@@ -893,9 +1050,34 @@ function searchMainDiagonal(polygon, attractor, bufferSize, maxSteps) {
     // Координаты точки, где зафиксировано минимальное расстояние до точки притяжения в строке
     let minDistanceXY = null
 
+    /**
+     * Детальный поиск лучшего варианта в окрестностях найденной точки.
+     *
+     * @param x0 - координата X найденной точки
+     * @param y0 - координата Y найденной точки
+     */
+    function neighborhoodSearch(x0, y0) {
+      for (let x = x0 - bigStep; x <= x0 + bigStep; x += step) {
+        for (let y = y0 - bigStep; y <= y0 + bigStep; y += step) {
+          const p = [x, y]
+
+          if (pointInPolygon(p, polygon)) {
+            const distanceToEdge = getDistanceBetweenPointAndPolyline(p, polygon)
+            if (distanceToEdge !== null && distanceToEdge >= bufferSize) {
+              const sqrD = getSquaredDistanceBetweenPoints(p, attractor)
+              if (sqrD < sqrMinDistance) {
+                sqrMinDistance = sqrD
+                minDistanceXY = p
+              }
+            }
+          }
+        }
+      }
+    }
+
     /** Внутренний цикл перпендикулярно линии поиска. */
     function innerLoop() {
-      for (let x = x1, y = y1; x <= x2 || y >= y2; x += step, y -= step) {
+      for (let x = x1, y = y1; x <= x2 || y >= y2; x += bigStep, y -= bigStep) {
         const point = [x, y]
 
         if (pointInPolygon(point, polygon)) {
@@ -920,20 +1102,23 @@ function searchMainDiagonal(polygon, attractor, bufferSize, maxSteps) {
       innerLoop()
 
       if (minDistanceXY) {
+        if (step < bigStep) {
+          neighborhoodSearch(minDistanceXY[0], minDistanceXY[1])
+        }
         return minDistanceXY
       }
 
       // Уменьшаться может только один из x1, y1. Сначала уменьшается x1, потом y1.
       if (x1 > minX) {
-        x1 -= step
+        x1 -= bigStep
       } else {
-        y1 -= step
+        y1 -= bigStep
       }
       // Также уменьшаться может только один из x2, y2. Сначала уменьшается y2, потом x2.
       if (y2 > minY) {
-        y2 -= step
+        y2 -= bigStep
       } else {
-        x2 -= step
+        x2 -= bigStep
       }
     }
 
@@ -976,9 +1161,11 @@ function searchMainDiagonal(polygon, attractor, bufferSize, maxSteps) {
  * @param bufferSize - размер буфера
  * @param maxSteps - максимальное количество шагов. Так как округление производится в меньшую
  *                   сторону, реальное количество шагов может быть больше.
+ * @param fast - активировать быстрый поиск. Он менее точный и в редких случаях может не найти точку, хотя
+ *               таковая имеется.
  * @returns координаты найденной точки или null, если не удалось найти точку, удовлетворяющую условиям
  */
-function searchAntiDiagonal(polygon, attractor, bufferSize, maxSteps) {
+function searchAntiDiagonal(polygon, attractor, bufferSize, maxSteps, fast = false) {
   const bbox = getPolylineBbox(polygon)
   if (!bbox) {
     console.error('Непредвиденная ошибка: не удалось вычислить bbox')
@@ -1007,7 +1194,7 @@ function searchAntiDiagonal(polygon, attractor, bufferSize, maxSteps) {
   if (!pointInPolygon([startX, startY], polygon)) {
     const distanceToEdge = getDistanceBetweenPointAndPolyline([startX, startY], polygon)
     // Для смещения по осям при 45° может применяться как cos, так и sin.
-    const delta = Math.floor(distanceToEdge * Math.cos((Math.PI / 180) * 45))
+    const delta = Math.floor(distanceToEdge * cos45)
     if (searchDirection === SearchDirection.Plus) {
       startX += delta
       startY -= delta
@@ -1046,6 +1233,8 @@ function searchAntiDiagonal(polygon, attractor, bufferSize, maxSteps) {
   }
   // При поиске вдоль диагоналей используем единый шаг
   const step = Math.min(stepX, stepY)
+  // Если активирован быстрый поиск, то точки будут тестироваться с шагом, который равен величине буфера.
+  const bigStep = fast ? Math.floor(bufferSize * cos45) : step
 
   // Проводим прямую через стартовую точку перпендикулярно линии поиска (побочной диагонали) и
   // находим точки её пересечения (2) с ограничивающим прямоугольником. Полагаемся на то, что
@@ -1078,9 +1267,34 @@ function searchAntiDiagonal(polygon, attractor, bufferSize, maxSteps) {
     // Координаты точки, где зафиксировано минимальное расстояние до точки притяжения в строке
     let minDistanceXY = null
 
+    /**
+     * Детальный поиск лучшего варианта в окрестностях найденной точки.
+     *
+     * @param x0 - координата X найденной точки
+     * @param y0 - координата Y найденной точки
+     */
+    function neighborhoodSearch(x0, y0) {
+      for (let x = x0 - bigStep; x <= x0 + bigStep; x += step) {
+        for (let y = y0 - bigStep; y <= y0 + bigStep; y += step) {
+          const p = [x, y]
+
+          if (pointInPolygon(p, polygon)) {
+            const distanceToEdge = getDistanceBetweenPointAndPolyline(p, polygon)
+            if (distanceToEdge !== null && distanceToEdge >= bufferSize) {
+              const sqrD = getSquaredDistanceBetweenPoints(p, attractor)
+              if (sqrD < sqrMinDistance) {
+                sqrMinDistance = sqrD
+                minDistanceXY = p
+              }
+            }
+          }
+        }
+      }
+    }
+
     /** Внутренний цикл перпендикулярно линии поиска. */
     function innerLoop() {
-      for (let x = x1, y = y1; x <= x2 || y <= y2; x += step, y += step) {
+      for (let x = x1, y = y1; x <= x2 || y <= y2; x += bigStep, y += bigStep) {
         const point = [x, y]
 
         if (pointInPolygon(point, polygon)) {
@@ -1105,20 +1319,23 @@ function searchAntiDiagonal(polygon, attractor, bufferSize, maxSteps) {
       innerLoop()
 
       if (minDistanceXY) {
+        if (step < bigStep) {
+          neighborhoodSearch(minDistanceXY[0], minDistanceXY[1])
+        }
         return minDistanceXY
       }
 
       // Меняться может только один из x1, y1. Сначала уменьшается y1, потом увеличивается x1.
       if (y1 > minY) {
-        y1 -= step
+        y1 -= bigStep
       } else {
-        x1 += step
+        x1 += bigStep
       }
       // Также меняться может только один из x2, y2. Сначала растёт x2, потом уменьшается y2.
       if (x2 < maxX) {
-        x2 += step
+        x2 += bigStep
       } else {
-        y2 -= step
+        y2 -= bigStep
       }
     }
 
@@ -1152,9 +1369,34 @@ function searchAntiDiagonal(polygon, attractor, bufferSize, maxSteps) {
     // Координаты точки, где зафиксировано минимальное расстояние до точки притяжения в строке
     let minDistanceXY = null
 
+    /**
+     * Детальный поиск лучшего варианта в окрестностях найденной точки.
+     *
+     * @param x0 - координата X найденной точки
+     * @param y0 - координата Y найденной точки
+     */
+    function neighborhoodSearch(x0, y0) {
+      for (let x = x0 - bigStep; x <= x0 + bigStep; x += step) {
+        for (let y = y0 - bigStep; y <= y0 + bigStep; y += step) {
+          const p = [x, y]
+
+          if (pointInPolygon(p, polygon)) {
+            const distanceToEdge = getDistanceBetweenPointAndPolyline(p, polygon)
+            if (distanceToEdge !== null && distanceToEdge >= bufferSize) {
+              const sqrD = getSquaredDistanceBetweenPoints(p, attractor)
+              if (sqrD < sqrMinDistance) {
+                sqrMinDistance = sqrD
+                minDistanceXY = p
+              }
+            }
+          }
+        }
+      }
+    }
+
     /** Внутренний цикл перпендикулярно линии поиска. */
     function innerLoop() {
-      for (let x = x1, y = y1; x <= x2 || y <= y2; x += step, y += step) {
+      for (let x = x1, y = y1; x <= x2 || y <= y2; x += bigStep, y += bigStep) {
         const point = [x, y]
 
         if (pointInPolygon(point, polygon)) {
@@ -1179,20 +1421,23 @@ function searchAntiDiagonal(polygon, attractor, bufferSize, maxSteps) {
       innerLoop()
 
       if (minDistanceXY) {
+        if (step < bigStep) {
+          neighborhoodSearch(minDistanceXY[0], minDistanceXY[1])
+        }
         return minDistanceXY
       }
 
       // Меняться может только один из x1, y1. Сначала уменьшается x1, потом увеличивается y1.
       if (x1 > minX) {
-        x1 -= step
+        x1 -= bigStep
       } else {
-        y1 += step
+        y1 += bigStep
       }
       // Также меняться может только один из x2, y2. Сначала растёт y2, потом уменьшается x2.
       if (y2 < maxY) {
-        y2 += step
+        y2 += bigStep
       } else {
-        x2 -= step
+        x2 -= bigStep
       }
     }
 
@@ -1234,9 +1479,11 @@ function searchAntiDiagonal(polygon, attractor, bufferSize, maxSteps) {
  *
  * @param params - параметры поиска точки. Описание см. в интерфейсе.
  * @param paramsModifier - мофикатор параметров. Нужен, так как функция может вызываться опосредованно.
+ * @param fast - активировать быстрый поиск. Он менее точный и в редких случаях может не найти точку, хотя
+ *               таковая имеется.
  * @returns координаты найденной точки или null, если не удалось найти точку, удовлетворяющую условиям
  */
-export function findPointInPolygon(params, paramsModifier) {
+export function findPointInPolygon(params, paramsModifier, fast = false) {
   console.time('findPointInPolygon')
 
   let polygon
@@ -1287,19 +1534,19 @@ export function findPointInPolygon(params, paramsModifier) {
   let point
   switch (searchLine) {
     case SearchLine.Vertical:
-      point = searchVertical(polygon, attractor, bufferSize, maxSteps)
+      point = searchVertical(polygon, attractor, bufferSize, maxSteps, fast)
       console.timeEnd('findPointInPolygon')
       return point
     case SearchLine.Horizontal:
-      point = searchHorizontal(polygon, attractor, bufferSize, maxSteps)
+      point = searchHorizontal(polygon, attractor, bufferSize, maxSteps, fast)
       console.timeEnd('findPointInPolygon')
       return point
     case SearchLine.MainDiagonal:
-      point = searchMainDiagonal(polygon, attractor, bufferSize, maxSteps)
+      point = searchMainDiagonal(polygon, attractor, bufferSize, maxSteps, fast)
       console.timeEnd('findPointInPolygon')
       return point
     case SearchLine.AntiDiagonal:
-      point = searchAntiDiagonal(polygon, attractor, bufferSize, maxSteps)
+      point = searchAntiDiagonal(polygon, attractor, bufferSize, maxSteps, fast)
       console.timeEnd('findPointInPolygon')
       return point
     default:
@@ -1324,6 +1571,8 @@ export function findPointInPolygon(params, paramsModifier) {
  * @param bufferSize - размер буфера: минимальное расстояние от точки до границы полигона
  * @param preferredAxis - приоритетная ось для случаев, когда точка притяжения присвоена углу
  * @param paramsModifier - модификатор параметров
+ * @param fast - активировать быстрый поиск. Он менее точный и в редких случаях может не найти точку, хотя
+ *               таковая имеется.
  * @returns координаты найденной точки или null, если не удалось найти точку, удовлетворяющую условиям
  */
 export function findPointInMultiPolygon(
@@ -1332,7 +1581,8 @@ export function findPointInMultiPolygon(
   attractor,
   bufferSize,
   preferredAxis,
-  paramsModifier
+  paramsModifier,
+  fast = false
 ) {
   // Быстрая проверка: если ограничивающая рамка меньше двух буферов, возвращаем null.
   const bbox = getMultiPolygonBbox(multiPolygon)
@@ -1489,7 +1739,8 @@ export function findPointInMultiPolygon(
         bufferSize: bufferSize,
         searchLine: searchLine,
       },
-      paramsModifier
+      paramsModifier,
+      fast
     )
 
     if (point) {

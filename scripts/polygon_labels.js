@@ -91,18 +91,30 @@ function styleFunction(feature) {
         let pixel
 
         if (isMultiPolygonCoordinates(pixelCoordinates)) {
-          pixel = findPointInMultiPolygon(pixelCoordinates, preferredCoordinates, attractor, bufferSize, axis)
+          pixel = findPointInMultiPolygon(
+            pixelCoordinates,
+            preferredCoordinates,
+            attractor,
+            bufferSize,
+            axis,
+            undefined,
+            true
+          )
         } else if (isPolygonCoordinates(pixelCoordinates)) {
           const exteriorRingCoordinates = pixelCoordinates[0]
           const bbox = getPolylineBbox(exteriorRingCoordinates)
           const attractorCoordinates = getAttractorCoordinates(attractor, bbox)
 
-          pixel = findPointInPolygon({
-            polygon: exteriorRingCoordinates,
-            attractor: attractorCoordinates,
-            bufferSize: bufferSize,
-            searchLine: searchLine,
-          })
+          pixel = findPointInPolygon(
+            {
+              polygon: exteriorRingCoordinates,
+              attractor: attractorCoordinates,
+              bufferSize: bufferSize,
+              searchLine: searchLine,
+            },
+            undefined,
+            true
+          )
         } else {
           throw new Error('pixelCoordinates is neither polygon nor multipolygon coordinates')
         }
@@ -194,3 +206,26 @@ fetch('data/countries-coastline-1km.geo.json')
     }
     // walkAllCountries()
   })
+
+document.addEventListener('keyup', function (event) {
+  if (!window.points) {
+    return
+  }
+  if (event.key !== 'k') {
+    return
+  }
+  const canvas = document.getElementsByTagName('canvas')[0]
+  const ctx = canvas.getContext('2d')
+  ctx.fillStyle = 'red'
+  let i = 0
+  const timer = setInterval(function () {
+    const point = window.points[i]
+    if (!point) {
+      clearInterval(timer)
+      console.log('last index:', i - 1)
+      return
+    }
+    ctx.fillRect(point[0], point[1], 1, 1)
+    i++
+  }, 1)
+})
